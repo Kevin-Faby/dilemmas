@@ -12,7 +12,25 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "lint": "eslint src --ext .ts",
-    "test": "jest"
+    "test": "jest",
+    
+    "setup:env": "node -e \"const fs = require('fs'); if (!fs.existsSync('.env')) { fs.copyFileSync('.env.example', '.env'); console.log('✅ Fichier .env créé'); } else { console.log('⚠️  .env existe déjà'); }\"",
+    "setup:install": "npm install",
+    "setup:migrate": "npm run prisma:generate && npm run prisma:migrate",
+    "setup:seed": "npm run prisma:seed",
+    "setup": "npm run setup:env && npm run setup:install && npm run setup:migrate && npm run setup:seed",
+    
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:restart": "docker-compose restart",
+    "docker:ps": "docker-compose ps",
+    
+    "db:studio": "prisma studio",
+    "db:push": "prisma db push",
+    "db:reset": "prisma migrate reset",
+    
+    "quick": "npm run docker:up && timeout /t 10 && npm run setup:migrate && npm run setup:seed && npm run dev"
   },
   "keywords": ["dilemma", "api", "express"],
   "author": "Votre nom",
