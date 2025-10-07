@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// UTILISATEURS
+// ============================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  username      String   @unique
+  
+  // Données démographiques (optionnelles)
+  birthDate     DateTime? @map("birth_date")
+  gender        Gender?
+  region        String?   // Code région/pays
+  
+  // Premium
+  isPremium     Boolean  @default(false) @map("is_premium")
+  premiumUntil  DateTime? @map("premium_until")
+  
+  // Métadonnées
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+  
+  // Relations
+  votes         Vote[]
+  friendshipsInitiated Friendship[] @relation("UserFriendships")
+  friendshipsReceived  Friendship[] @relation("FriendFriendships")
+  rewardInteractions   RewardInteraction[]
+  
+  @@map("users")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+// ============================================
+// AMIS
+// ============================================
+
+model Friendship {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  friendId   String   @map("friend_id")
+  status     FriendshipStatus @default(PENDING)
+  createdAt  DateTime @default(now()) @map("created_at")
+  
+  user       User     @relation("UserFriendships", fields: [userId], references: [id], onDelete: Cascade)
+  friend     User     @relation("FriendFriendships", fields: [friendId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@map("friendships")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+// ============================================
+// DILEMMES
+// ============================================
+
+model Dilemma {
+  id           String   @id @default(uuid())
+  question     String
+  optionA      String   @map("option_a")
+  optionB      String   @map("option_b")
+  
+  // Planification
+  publishDate  DateTime @map("publish_date") // Date de publication
+  revealTime   DateTime @map("reveal_time")  // Heure de révélation (20h)
+  
+  // Sponsoring
+  isSponsored  Boolean  @default(false) @map("is_sponsored")
+  sponsorId    String?  @map("sponsor_id")
+  
+  // Métadonnées
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  sponsor      Sponsor?  @relation(fields: [sponsorId], references: [id])
+  votes        Vote[]
+  rewards      SponsorReward[]
+  
+  @@index([publishDate])
+  @@index([sponsorId])
+  @@map("dilemmas")
+}
+
+// ============================================
+// VOTES
+// ============================================
+
+model Vote {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  dilemmaId  String   @map("dilemma_id")
+  choice     Choice   // A ou B
+  votedAt    DateTime @default(now()) @map("voted_at")
+  
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dilemma    Dilemma  @relation(fields: [dilemmaId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, dilemmaId]) // Un utilisateur vote une seule fois par dilemme
+  @@index([dilemmaId])
+  @@index([userId])
+  @@map("votes")
+}
+
+enum Choice {
+  A
+  B
+}
+
+// ============================================
+// SPONSORS
+// ============================================
+
+model Sponsor {
+  id          String   @id @default(uuid())
+  name        String
+  logoUrl     String   @map("logo_url")
+  brandColor  String   @map("brand_color") // Hex color
+  active      Boolean  @default(true)
+  
+  // Contact
+  email       String?
+  contactName String?  @map("contact_name")
+  
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  dilemmas    Dilemma[]
+  rewards     SponsorReward[]
+  
+  @@map("sponsors")
+}
+
+// ============================================
+// RÉCOMPENSES SPONSORS
+// ============================================
+
+model SponsorReward {
+  id             String      @id @default(uuid())
+  dilemmaId      String      @map("dilemma_id")
+  sponsorId      String      @map("sponsor_id")
+  
+  // Configuration de la récompense
+  choiceTarget   ChoiceTarget @map("choice_target") // Pour quel choix
+  rewardType     RewardType   @map("reward_type")   // Type de récompense
+  rewardContent  String       @map("reward_content") // Code promo, URL, etc.
+  message        String       // Message à afficher
+  
+  // Validité
+  expiresAt      DateTime?    @map("expires_at")
+  
+  createdAt      DateTime    @default(now()) @map("created_at")
+  
+  dilemma        Dilemma     @relation(fields: [dilemmaId], references: [id], onDelete: Cascade)
+  sponsor        Sponsor     @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  interactions   RewardInteraction[]
+  
+  @@index([dilemmaId])
+  @@map("sponsor_rewards")
+}
+
+enum ChoiceTarget {
+  A           // Uniquement pour ceux qui ont choisi A
+  B           // Uniquement pour ceux qui ont choisi B
+  BOTH        // Pour tous les votants
+}
+
+enum RewardType {
+  CODE        // Code promo
+  LINK        // Lien externe
+  IMAGE       // Image (ex: coupon)
+  MESSAGE     // Simple message
+}
+
+// ============================================
+// INTERACTIONS RÉCOMPENSES (Analytics)
+// ============================================
+
+model RewardInteraction {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  rewardId   String   @map("reward_id")
+  action     InteractionAction
+  timestamp  DateTime @default(now())
+  
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward     SponsorReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  
+  @@index([rewardId])
+  @@index([userId])
+  @@map("reward_interactions")
+}
+
+enum InteractionAction {
+  VIEW        // A vu la récompense
+  COPY        // A copié le code
+  CLICK       // A cliqué sur le lien
+}
