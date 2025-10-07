@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # BASE DE DONNÉES POSTGRESQL
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dilemma_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password_change_in_prod
+      POSTGRES_DB: dilemma_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dilemma_network
+
+  # ============================================
+  # REDIS (Cache & Queue)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: dilemma_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dilemma_network
+
+  # ============================================
+  # BACKEND API (Développement)
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: dilemma_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/dilemma_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-minimum-32-characters-long}
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: "*"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - /app/node_modules
+    networks:
+      - dilemma_network
+    command: npm run dev
+
+  # ============================================
+  # PRISMA STUDIO (Interface graphique DB)
+  # Accessible sur http://localhost:5555
+  # ============================================
+  prisma-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: dilemma_prisma_studio
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres_password_change_in_prod@postgres:5432/dilemma_db
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./prisma:/app/prisma
+    networks:
+      - dilemma_network
+    command: npx prisma studio --port 5555 --hostname 0.0.0.0
+
+  # ============================================
+  # REDIS COMMANDER (Interface graphique Redis)
+  # Accessible sur http://localhost:8081
+  # ============================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: dilemma_redis_commander
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - dilemma_network
+
+# ============================================
+# VOLUMES PERSISTANTS
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ============================================
+# RÉSEAU
+# ============================================
+networks:
+  dilemma_network:
+    driver: bridge
